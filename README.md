@@ -1,106 +1,143 @@
-
 # GradeBot
 
-Ask natural language questions about course grades using a local SQLite database and an LLM-powered agent.
+GradeBot turns natural-language questions into SQLite queries using the local
+`qwen3.5:4b` Ollama model. It validates and executes those queries against the local
+course-grade database, then presents the results in a CLI or Streamlit chat interface.
+LangChain and cloud services are not used.
 
-![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)
-![Streamlit](https://img.shields.io/badge/streamlit-app-red?logo=streamlit)
-![LangChain](https://img.shields.io/badge/langchain-powered-blueviolet)
-![License](https://img.shields.io/badge/license-Apache%202.0-green)
+## Requirements
 
----
+- Python 3.11 or newer
+- [Ollama](https://ollama.com/)
+- The `qwen3.5:4b` model
 
-## What is GradeBot?
+## Setup
 
-**GradeBot** is an intelligent chatbot that lets you explore a course grade database using natural language. It combines the power of [LangChain](https://www.langchain.com/), [Ollama](https://ollama.com/), and a local **SQLite** database to deliver smart, SQL-driven responses.
+Pull the model and create the Python environment:
 
-Whether you prefer the **command line** or a **modern web UI**, GradeBot has you covered!
-
----
-
-## Project Structure
-
-```text
-.
-├── newgrades.csv            # Source CSV data
-├── grades.db                # SQLite DB (generated)
-├── sql-make.py              # Converts CSV to SQLite
-├── chat-sqlbot.py           # Terminal chatbot interface
-├── streamlit_sqlbot.py      # Streamlit chatbot interface
-├── requirements.txt         # Python dependencies
-└── README.md
+```powershell
+ollama pull qwen3.5:4b
+uv venv --python 3.11
+uv pip install --python .venv\Scripts\python.exe -e ".[web]"
 ```
 
-## Setup Instructions
+Those commands do not require PowerShell script activation. To activate the environment
+anyway, use:
 
-### 1. Install Python dependencies
-
-```bash
-pip install -r requirements.txt
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
 ```
 
-### 2. Install and run Ollama
+The execution-policy change lasts only for the current PowerShell window. On macOS or
+Linux, create an environment with `python3 -m venv .venv`, activate it with
+`source .venv/bin/activate`, and run `pip install -e ".[web]"`.
 
-If you haven't already, install Ollama and pull the Mistral model:
+## Run GradeBot
 
-```bash
-ollama pull mistral
+Make sure the local Ollama application is running. If necessary, start its server:
+
+```powershell
+ollama serve
 ```
 
-### 3. Create the SQLite database
+Start an interactive terminal session without activating the environment:
 
-Run the script to convert the provided CSV into a .db file:
-
-```bash
-python sql-make.py
+```powershell
+.\.venv\Scripts\python.exe -m gradebot
 ```
 
-This will create a `grades.db` file from `newgrades.csv`.
+Type `exit` or `quit` to stop. Use `--show-sql` to inspect each checked query, or ask one
+question directly:
 
-## Usage
-
-### Terminal Mode
-
-Use the command-line chatbot:
-
-```bash
-python chat-sqlbot.py
+```powershell
+.\.venv\Scripts\python.exe -m gradebot --show-sql "Who taught Business Enterprises in Fall 2020?"
 ```
 
-Ask questions like:
+Start the web interface:
 
-```text
-What is the average grade in Fall 2020?
+```powershell
+.\.venv\Scripts\streamlit.exe run app.py
 ```
 
-### Streamlit Web App
+Open the local URL printed by Streamlit, normally <http://localhost:8501>. Answers include
+an expandable result table, generated SQL, and a CSV download. Conversation history is
+displayed, but each question should currently be self-contained.
 
-Launch the web interface:
+After activating the environment, the shorter `gradebot` and `streamlit run app.py`
+commands work as well. The original `chat-sqlbot.py`, `streamlit_sqlbot.py`, and
+`sql-make.py` launchers remain compatible.
 
-```bash
-streamlit run streamlit_sqlbot.py
+## Example questions
+
+- What was the weighted average grade in Fall 2020?
+- Which departments have published grades in Fall 2020?
+- Who taught Business Enterprises in Fall 2020?
+- Show the letter-grade distribution for LAW 500M in Fall 2020.
+- How many A-range grades were awarded in LAW courses in Spring 2024?
+
+## Important data semantics
+
+- `FS`, `SS`, and `US` mean Fall, Spring, and Summer. For example, `FS20` is Fall 2020.
+- Rows with `amount_of_grades = 0` are course listings without published grade results.
+  Their zero averages must not be treated as student performance.
+- Overall averages must be weighted as `SUM(total_grades) / SUM(amount_of_grades)` over
+  rows with published grades. Averaging the already-rounded `average_grade` values is less
+  accurate.
+- Numeric and letter-grade buckets are two representations of the same graded students;
+  adding both sets double-counts them.
+- In the currently checked-in data, course listings span many departments, but published
+  grade distributions are populated only for `LAW`. Grade questions about other subjects
+  should correctly report that no published data is available.
+
+## Safety and recovery
+
+GradeBot opens SQLite in read-only mode and applies a SQLite authorizer that permits only
+`SELECT` operations against `course_grades` and an allowlist of ordinary query functions.
+It also limits returned rows and SQLite work. Invalid generated SQL is returned to the
+local model for one bounded correction attempt.
+
+`OLLAMA_HOST` is restricted to `localhost` or an explicit loopback IP. This prevents a
+configuration mistake from sending questions or query results to a remote model server.
+If the answer-summary call fails after a query succeeds, GradeBot displays the raw result
+instead of discarding it.
+
+## Configuration
+
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `GRADEBOT_MODEL` | `qwen3.5:4b` | Installed Ollama model name |
+| `OLLAMA_HOST` | `http://localhost:11434` | Local Ollama server URL |
+| `GRADEBOT_DB` | `grades.db` | SQLite database path |
+| `GRADEBOT_TIMEOUT` | `120` | Ollama timeout in seconds (1–600) |
+| `GRADEBOT_MAX_ROWS` | `200` | Maximum returned rows (1–1000) |
+| `GRADEBOT_MAX_VM_STEPS` | `5000000` | Approximate SQLite work limit |
+| `GRADEBOT_SQL_ATTEMPTS` | `2` | SQL generation attempts (1–3) |
+
+## Database builder
+
+The repository includes `grades.db`; normal use does not rebuild it. To intentionally
+recreate it from the source CSV:
+
+```powershell
+.\.venv\Scripts\gradebot-build-db.exe newgrades.csv
 ```
 
-Then open the provided localhost URL in your browser to chat with GradeBot in a clean, interactive UI.
+The builder creates a validated temporary database and atomically replaces the target,
+validates numeric fields, loads in batches,
+and creates indexes for common term/course lookups. It will not silently convert malformed
+numeric data to null. The compatibility command `python sql-make.py` is also available.
 
-## Example Queries
+## Development
 
-- What was the highest grade in Spring 2022?
-- Show me average grades for each department.
-- How many students got an A in MATH101?
+```powershell
+uv pip install --python .venv\Scripts\python.exe -e ".[dev,web]"
+.\.venv\Scripts\pytest.exe
+.\.venv\Scripts\ruff.exe check .
+```
+
+Tests use temporary databases and do not alter `grades.db` or `newgrades.csv`.
 
 ## License
 
-This project is licensed under the Apache 2.0 License.
-
-## Credits
-
-- Built with LangChain
-- Powered by Ollama and the Mistral model
-- UI by Streamlit
-
-## Future Improvements
-
-- Upload your own CSV file via the UI
-- Add support for charts and visualizations
-- Deployable via Docker or Hugging Face Spaces
+Apache-2.0

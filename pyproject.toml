@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gradebot-sql"
+version = "2.0.0"
+description = "Ask questions about a local course-grade database with Ollama."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+dependencies = []
+
+[project.optional-dependencies]
+web = ["streamlit>=1.53,<2"]
+dev = ["pytest>=8,<9", "ruff>=0.11,<1"]
+
+[project.scripts]
+gradebot = "gradebot.cli:main"
+gradebot-build-db = "gradebot.db_builder:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["gradebot"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
